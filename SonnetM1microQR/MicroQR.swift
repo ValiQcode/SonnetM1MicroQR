@@ -1,7 +1,7 @@
 import Foundation
 
 struct MicroQR {
-    static func generateM1WithData() -> [[Bool]] {
+    static func generateM1WithData(data: String) -> [[Bool]] {
         // Create the QR matrix (11x11 for M1)
         var matrix = Array(repeating: Array(repeating: false, count: 11), count: 11)
         
@@ -31,54 +31,55 @@ struct MicroQR {
         }
         
         // 3. Add format information for M1 with mask pattern 0
-        // Unmasked format info: 000000000000000
-        // XOR with mask: 100010001000101
-        // Final format info: 100010001000101
         let formatBits = [true, false, false, false, true, false, false, false, true, false, false, false, true, false, true]
         
         // Place format bits
-        // Top right to bottom right, excluding timing pattern position (0,8)
         for i in 1...8 {
             matrix[i][8] = formatBits[i-1]
         }
-        // Right top, from position 8,8 to 8,1
         for j in (1...7).reversed() {
             matrix[8][j] = formatBits[15-j]
         }
         
-        // 4. Encode data "23"
-        // Mode indicator (0 for numeric) = 0
-        // Character count (2) in 3 bits = 010
-        // Two digits (23) = (2×10 + 3 = 23) in 7 bits = 0010111
-        let dataBits = [
-            // Mode indicator (1 bit)
-            false,
-            // Character count (3 bits)
-            false, true, false,
-            // Value 23 (7 bits)
-            false, false, true, false, true, true, true
-        ]
+        // 4. Encode data
+        // For M1: Character count is 3 bits, numeric only
+        let characterCount = data.count
+        let characterCountBits = String(characterCount, radix: 2).padLeft(toLength: 3, withPad: "0")
+            .map { $0 == "1" }
+            
+        // Encode numeric data
+        var dataBits: [Bool] = []
+        var digits = data
+        while !digits.isEmpty {
+            let groupSize = min(3, digits.count)
+            let group = String(digits.prefix(groupSize))
+            digits = String(digits.dropFirst(groupSize))
+            
+            // Convert group to binary
+            let value = Int(group)!
+            let binaryLength = groupSize == 3 ? 10 : (groupSize == 2 ? 7 : 4)
+            let binaryString = String(value, radix: 2).padLeft(toLength: binaryLength, withPad: "0")
+            dataBits.append(contentsOf: binaryString.map { $0 == "1" })
+        }
         
-        print("\nData bits to be placed:")
-        print("Mode indicator (1 bit):     \(dataBits[0])")
-        print("Character count (3 bits):   \(dataBits[1..<4].map { $0 })")
-        print("Value 1 (4 bits):          \(dataBits[4..<8].map { $0 })")
+        // Add Terminator (3 bits for M1)
+        dataBits.append(contentsOf: [false, false, false])
         
-        // 5. Place data bits
+        // Convert to 4-bit codewords and pad if needed
+        while dataBits.count % 4 != 0 {
+            dataBits.append(false)
+        }
+        
+        // 5. Place data bits in matrix
         var bitIndex = 0
-        print("\nBit placement positions (row, col):")
-        // Data placement starts from bottom-right, going up in columns
         for col in stride(from: 10, through: 0, by: -2) {
             for row in (0...10).reversed() {
-                // Skip functional patterns
                 if isDataRegion(row: row, col: col) && bitIndex < dataBits.count {
                     matrix[row][col] = dataBits[bitIndex]
-                    print("Bit \(bitIndex) (\(dataBits[bitIndex])) placed at: (\(row), \(col))")
                     bitIndex += 1
                 }
                 if isDataRegion(row: row, col: col-1) && bitIndex < dataBits.count {
                     matrix[row][col-1] = dataBits[bitIndex]
-                    print("Bit \(bitIndex) (\(dataBits[bitIndex])) placed at: (\(row), \(col-1))")
                     bitIndex += 1
                 }
             }
@@ -87,26 +88,30 @@ struct MicroQR {
         return matrix
     }
     
-    // Helper to check if a position is in the data region
     private static func isDataRegion(row: Int, col: Int) -> Bool {
-        // Return false for finder pattern (including row 7 and column 7 until intersection)
-        if (row <= 6 && col <= 6) || // 7x7 square
-           (row == 7 && col <= 7) || // Row 7 until intersection
-           (col == 7 && row <= 7) {  // Column 7 until intersection
+        if (row <= 6 && col <= 6) ||
+           (row == 7 && col <= 7) ||
+           (col == 7 && row <= 7) {
             return false
         }
-        // Return false for timing patterns
         if row == 0 || col == 0 {
             return false
         }
-        // Return false for format information (excluding timing pattern positions)
-        if (row == 8 && col >= 1 && col <= 8) || // Row 8 positions 1-8
-           (col == 8 && row >= 1 && row <= 7) {  // Column 8 positions 1-7
+        if (row == 8 && col >= 1 && col <= 8) ||
+           (col == 8 && row >= 1 && row <= 7) {
             return false
         }
         return true
     }
 }
 
-// Generate the QR code and print debug info
-let matrix = MicroQR.generateM1WithData()
+// Helper extension
+extension String {
+    func padLeft(toLength: Int, withPad character: Character) -> String {
+        let length = self.count
+        if length < toLength {
+            return String(repeating: character, count: toLength - length) + self
+        }
+        return self
+    }
+}

@@ -7,7 +7,7 @@ struct ContentView: View {
                 .font(.title)
                 .padding()
             
-            QRCodeView(matrix: MicroQR.generateM1WithData())
+            QRCodeView(matrix: MicroQR.generateM1WithData(data: "1"))
                 .frame(width: 220, height: 220)
                 .border(Color.gray, width: 1)
         }
