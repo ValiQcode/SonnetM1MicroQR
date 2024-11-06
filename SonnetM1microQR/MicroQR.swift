@@ -1,4 +1,5 @@
 import Foundation
+
 struct MicroQR {
     static func generateM1WithData() -> [[Bool]] {
         // Create the QR matrix (11x11 for M1)
@@ -29,17 +30,20 @@ struct MicroQR {
             matrix[i][0] = i % 2 == 0
         }
         
-        // 3. Add format information for mask pattern 0
-        let formatBits = [true, false, false, false, false, false, true, true, false, false, false, false, false, true, true]
+        // 3. Add format information for M1 with mask pattern 0
+        // Unmasked format info: 000000000000000
+        // XOR with mask: 100010001000101
+        // Final format info: 100010001000101
+        let formatBits = [true, false, false, false, true, false, false, false, true, false, false, false, true, false, true]
         
-        // Place format bits in row 8 (positions 1-8)
-        for j in 1...8 {
-            matrix[8][j] = formatBits[j-1]
+        // Place format bits
+        // Top right to bottom right, excluding timing pattern position (0,8)
+        for i in 1...8 {
+            matrix[i][8] = formatBits[i-1]
         }
-        
-        // Place remaining format bits in column 8 (positions 1-7)
-        for i in 1...7 {
-            matrix[i][8] = formatBits[i+7]
+        // Right top, from position 8,8 to 8,1
+        for j in (1...7).reversed() {
+            matrix[8][j] = formatBits[15-j]
         }
         
         // 4. Encode data "23"
