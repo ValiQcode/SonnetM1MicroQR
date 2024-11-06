@@ -34,6 +34,8 @@ struct GF256 {
 
 struct MicroQR {
     static func generateM1WithData(data: String) -> [[Bool]] {
+        print("\n=== Debug Output for MicroQR M1 Encoding ===")
+        
         // Create the QR matrix (11x11 for M1)
         var matrix = Array(repeating: Array(repeating: false, count: 11), count: 11)
         
@@ -77,49 +79,68 @@ struct MicroQR {
         var dataBits: [Bool] = []
         
         // Character count (3 bits)
-        dataBits.append(contentsOf: [false, false, true]) // 001 for length 1
+        let countBits: [Bool] = [false, false, true] // 001 for length 1
+        dataBits.append(contentsOf: countBits)
+        print("\nCharacter count bits (3): \(bitsToString(countBits))")
         
         // Data (4 bits for single digit)
         let value = Int(data)!
         let binaryString = String(value, radix: 2).padLeft(toLength: 4, withPad: "0")
-        dataBits.append(contentsOf: binaryString.map { $0 == "1" })
+        let valueBits = binaryString.map { $0 == "1" }
+        dataBits.append(contentsOf: valueBits)
+        print("Value bits (4): \(bitsToString(valueBits))")
         
         // Terminator (3 bits)
-        dataBits.append(contentsOf: [false, false, false])
+        let terminatorBits: [Bool] = [false, false, false]
+        dataBits.append(contentsOf: terminatorBits)
+        print("Terminator bits (3): \(bitsToString(terminatorBits))")
         
         // Pad to 8 bits for first two codewords
+        let initialCount = dataBits.count
         while dataBits.count < 16 {
             dataBits.append(false)
         }
+        print("Padding bits to 16: \(bitsToString(Array(dataBits[initialCount..<16])))")
         
         // Add 4 bits for final data codeword
+        let midCount = dataBits.count
         while dataBits.count < 20 {
             dataBits.append(false)
         }
+        print("Final 4 bits: \(bitsToString(Array(dataBits[midCount..<20])))")
         
-        // Convert bit array to codewords
-        var messagePolynomial = bitsToCodewords(dataBits)
+        print("\nComplete data before error detection: \(bitsToString(dataBits))")
+        
+        // Convert bit array to codewords for error detection
+        let messagePolynomial = bitsToCodewords(dataBits)
+        print("\nMessage polynomial coefficients: \(messagePolynomial.map { String(format: "0x%02X", $0) })")
         
         // Generate error detection codewords
         let errorCodewords = generateErrorDetection(messagePolynomial)
+        print("Error detection codewords: \(errorCodewords.map { String(format: "0x%02X", $0) })")
         
         // Convert everything back to bits for placement
         var allBits = dataBits
-        allBits.append(contentsOf: codewordsToBits(errorCodewords))
+        let errorBits = codewordsToBits(errorCodewords)
+        allBits.append(contentsOf: errorBits)
+        
+        print("\nFinal bit sequence (including error detection):")
+        print(bitsToString(allBits))
+        
+        print("\nFinal bit sequence (including error detection):")
+        print(bitsToString(allBits))
         
         
         // 5. Place data bits in matrix
         var bitIndex = 0
-        for col in stride(from: 10, through: 0, by: -2) {
-            for row in (0...10).reversed() {
-                if isDataRegion(row: row, col: col) && bitIndex < dataBits.count {
-                    matrix[row][col] = dataBits[bitIndex]
-                    bitIndex += 1
-                }
-                if isDataRegion(row: row, col: col-1) && bitIndex < dataBits.count {
-                    matrix[row][col-1] = dataBits[bitIndex]
-                    bitIndex += 1
-                }
+        print("\nBit placement in matrix:")
+        // Start from bottom right, move upward in zigzag
+        let dataPositions = calculateDataPositions()
+        for position in dataPositions {
+            if bitIndex < allBits.count {
+                matrix[position.row][position.col] = allBits[bitIndex]
+                print("Bit \(bitIndex) (\(allBits[bitIndex])) at [\(position.row),\(position.col)]")
+                bitIndex += 1
             }
         }
         
@@ -127,7 +148,6 @@ struct MicroQR {
         for i in 0...10 {
             for j in 0...10 {
                 if isDataRegion(row: i, col: j) {
-                    // XOR the module if sum of row and column is even
                     if (i + j) % 2 == 0 {
                         matrix[i][j].toggle()
                     }
@@ -136,6 +156,23 @@ struct MicroQR {
         }
         
         return matrix
+    }
+    
+    // Helper function to calculate bit positions in correct order
+    private static func calculateDataPositions() -> [(row: Int, col: Int)] {
+        var positions: [(row: Int, col: Int)] = []
+        // Starting from bottom right, going up in columns of 2
+        for col in stride(from: 10, through: 1, by: -2) {
+            for row in (0...10).reversed() {
+                if isDataRegion(row: row, col: col) {
+                    positions.append((row: row, col: col))
+                }
+                if isDataRegion(row: row, col: col-1) {
+                    positions.append((row: row, col: col-1))
+                }
+            }
+        }
+        return positions
     }
     
     private static func isDataRegion(row: Int, col: Int) -> Bool {
@@ -204,6 +241,11 @@ struct MicroQR {
         
         // Return the error detection codewords (last 2 bytes)
         return Array(remainder.suffix(generatorDegree))
+    }
+    
+    // Helper function to print bits nicely
+    private static func bitsToString(_ bits: [Bool]) -> String {
+        return bits.map { $0 ? "1" : "0" }.joined()
     }
 }
 
