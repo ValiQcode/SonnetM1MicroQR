@@ -17,8 +17,6 @@ struct MicroQR {
                 }
             }
         }
-        // Row 7 and Column 7 until intersection are part of finder pattern
-        // They remain white (false) as initialized
         
         // 2. Add timing patterns
         // Horizontal timing pattern (row 0, positions 7-10)
@@ -44,31 +42,39 @@ struct MicroQR {
             matrix[i][8] = formatBits[i+7]
         }
         
-        // 4. Encode data "1"
+        // 4. Encode data "23"
         // Mode indicator (0 for numeric) = 0
-        // Character count (1) in 3 bits = 001
-        // Single digit (1) in 4 bits = 0001
+        // Character count (2) in 3 bits = 010
+        // Two digits (23) = (2×10 + 3 = 23) in 7 bits = 0010111
         let dataBits = [
             // Mode indicator (1 bit)
             false,
             // Character count (3 bits)
-            false, false, true,
-            // Value 1 (4 bits)
-            false, false, false, true
+            false, true, false,
+            // Value 23 (7 bits)
+            false, false, true, false, true, true, true
         ]
+        
+        print("\nData bits to be placed:")
+        print("Mode indicator (1 bit):     \(dataBits[0])")
+        print("Character count (3 bits):   \(dataBits[1..<4].map { $0 })")
+        print("Value 1 (4 bits):          \(dataBits[4..<8].map { $0 })")
         
         // 5. Place data bits
         var bitIndex = 0
+        print("\nBit placement positions (row, col):")
         // Data placement starts from bottom-right, going up in columns
         for col in stride(from: 10, through: 0, by: -2) {
             for row in (0...10).reversed() {
                 // Skip functional patterns
                 if isDataRegion(row: row, col: col) && bitIndex < dataBits.count {
                     matrix[row][col] = dataBits[bitIndex]
+                    print("Bit \(bitIndex) (\(dataBits[bitIndex])) placed at: (\(row), \(col))")
                     bitIndex += 1
                 }
                 if isDataRegion(row: row, col: col-1) && bitIndex < dataBits.count {
                     matrix[row][col-1] = dataBits[bitIndex]
+                    print("Bit \(bitIndex) (\(dataBits[bitIndex])) placed at: (\(row), \(col-1))")
                     bitIndex += 1
                 }
             }
@@ -97,3 +103,6 @@ struct MicroQR {
         return true
     }
 }
+
+// Generate the QR code and print debug info
+let matrix = MicroQR.generateM1WithData()
