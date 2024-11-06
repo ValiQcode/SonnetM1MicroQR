@@ -3,7 +3,7 @@ import SwiftUI
 struct ContentView: View {
     var body: some View {
         VStack {
-            Text("M1 Micro QR Code for '123456'")
+            Text("M1 Micro QR Code for '1'")
                 .font(.title)
                 .padding()
             

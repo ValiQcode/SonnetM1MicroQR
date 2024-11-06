@@ -1,5 +1,37 @@
 import Foundation
 
+struct GF256 {
+    // GF(256) exponential table - α^i
+    static let expTable: [Int] = {
+        var exp = [Int](repeating: 0, count: 256)
+        var x = 1
+        for i in 0..<256 {
+            exp[i] = x
+            x = x << 1
+            if x > 255 {
+                x = x ^ 0b100011101 // XOR with primitive polynomial
+            }
+        }
+        return exp
+    }()
+    
+    // GF(256) log table - log_α(i)
+    static let logTable: [Int] = {
+        var log = [Int](repeating: 0, count: 256)
+        for i in 0..<255 {
+            log[expTable[i]] = i
+        }
+        return log
+    }()
+    
+    // Multiply two elements in GF(256)
+    static func multiply(_ a: Int, _ b: Int) -> Int {
+        if a == 0 || b == 0 { return 0 }
+        let sum = logTable[a] + logTable[b]
+        return expTable[sum % 255]
+    }
+}
+
 struct MicroQR {
     static func generateM1WithData(data: String) -> [[Bool]] {
         // Create the QR matrix (11x11 for M1)
@@ -42,33 +74,39 @@ struct MicroQR {
         }
         
         // 4. Encode data
-        // For M1: Character count is 3 bits, numeric only
-        let characterCount = data.count
-        let characterCountBits = String(characterCount, radix: 2).padLeft(toLength: 3, withPad: "0")
-            .map { $0 == "1" }
-            
-        // Encode numeric data
         var dataBits: [Bool] = []
-        var digits = data
-        while !digits.isEmpty {
-            let groupSize = min(3, digits.count)
-            let group = String(digits.prefix(groupSize))
-            digits = String(digits.dropFirst(groupSize))
-            
-            // Convert group to binary
-            let value = Int(group)!
-            let binaryLength = groupSize == 3 ? 10 : (groupSize == 2 ? 7 : 4)
-            let binaryString = String(value, radix: 2).padLeft(toLength: binaryLength, withPad: "0")
-            dataBits.append(contentsOf: binaryString.map { $0 == "1" })
-        }
         
-        // Add Terminator (3 bits for M1)
+        // Character count (3 bits)
+        dataBits.append(contentsOf: [false, false, true]) // 001 for length 1
+        
+        // Data (4 bits for single digit)
+        let value = Int(data)!
+        let binaryString = String(value, radix: 2).padLeft(toLength: 4, withPad: "0")
+        dataBits.append(contentsOf: binaryString.map { $0 == "1" })
+        
+        // Terminator (3 bits)
         dataBits.append(contentsOf: [false, false, false])
         
-        // Convert to 4-bit codewords and pad if needed
-        while dataBits.count % 4 != 0 {
+        // Pad to 8 bits for first two codewords
+        while dataBits.count < 16 {
             dataBits.append(false)
         }
+        
+        // Add 4 bits for final data codeword
+        while dataBits.count < 20 {
+            dataBits.append(false)
+        }
+        
+        // Convert bit array to codewords
+        var messagePolynomial = bitsToCodewords(dataBits)
+        
+        // Generate error detection codewords
+        let errorCodewords = generateErrorDetection(messagePolynomial)
+        
+        // Convert everything back to bits for placement
+        var allBits = dataBits
+        allBits.append(contentsOf: codewordsToBits(errorCodewords))
+        
         
         // 5. Place data bits in matrix
         var bitIndex = 0
@@ -81,6 +119,18 @@ struct MicroQR {
                 if isDataRegion(row: row, col: col-1) && bitIndex < dataBits.count {
                     matrix[row][col-1] = dataBits[bitIndex]
                     bitIndex += 1
+                }
+            }
+        }
+        
+        // 6. Apply mask pattern 00: (i + j) mod 2 = 0
+        for i in 0...10 {
+            for j in 0...10 {
+                if isDataRegion(row: i, col: j) {
+                    // XOR the module if sum of row and column is even
+                    if (i + j) % 2 == 0 {
+                        matrix[i][j].toggle()
+                    }
                 }
             }
         }
@@ -102,6 +152,58 @@ struct MicroQR {
             return false
         }
         return true
+    }
+    
+    private static func bitsToCodewords(_ bits: [Bool]) -> [Int] {
+        var codewords: [Int] = []
+        var currentByte = 0
+        
+        for (index, bit) in bits.enumerated() {
+            if index > 0 && index % 8 == 0 {
+                codewords.append(currentByte)
+                currentByte = 0
+            }
+            currentByte = (currentByte << 1) | (bit ? 1 : 0)
+        }
+        if bits.count % 8 != 0 {
+            codewords.append(currentByte << (8 - (bits.count % 8)))
+        }
+        
+        return codewords
+    }
+    
+    private static func codewordsToBits(_ codewords: [Int]) -> [Bool] {
+        var bits: [Bool] = []
+        for codeword in codewords {
+            for i in (0..<8).reversed() {
+                bits.append((codeword & (1 << i)) != 0)
+            }
+        }
+        return bits
+    }
+    
+    private static func generateErrorDetection(_ message: [Int]) -> [Int] {
+        // Generator polynomial coefficients for n=2:
+        // x^2 + α^25x + α^5
+        let generatorDegree = 2
+        let generator = [1, GF256.expTable[25], GF256.expTable[5]]
+        
+        // Initialize remainder buffer
+        var remainder = message + [Int](repeating: 0, count: generatorDegree)
+        
+        // Polynomial division
+        for i in 0..<message.count {
+            let lead = remainder[i]
+            if lead != 0 {
+                for j in 0..<generator.count {
+                    let term = GF256.multiply(generator[j], lead)
+                    remainder[i + j] ^= term
+                }
+            }
+        }
+        
+        // Return the error detection codewords (last 2 bytes)
+        return Array(remainder.suffix(generatorDegree))
     }
 }
 
